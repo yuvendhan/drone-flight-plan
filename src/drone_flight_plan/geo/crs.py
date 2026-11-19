@@ -29,7 +29,7 @@ def transformer(src, dst) -> Transformer:
 def reproject_geom(geom, src, dst):
     if CRS.from_user_input(src) == CRS.from_user_input(dst):
         return geom
-    return shapely.ops.transform(transformer(src, dst).transform, geom)
+    return shapely.transform(geom, transformer(src, dst).transform, interleaved=False)
 
 
 def to_metric(geom, src_crs):

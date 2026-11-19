@@ -16,7 +16,7 @@ Built for small, irregular fields (India-first profiles).
 ## Quick start
 
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build
 pip install -e ".[all]"
 streamlit run app/streamlit_app.py          # web app
 drone-flight-plan --help                              # command line

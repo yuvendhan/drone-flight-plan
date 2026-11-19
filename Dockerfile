@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --upgrade pip && \
-    pip install torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
     pip install -e ".[ml,app]"
 COPY app ./app
 COPY examples ./examples
