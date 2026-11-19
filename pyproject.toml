@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drone-flight-plan"
+version = "0.2.0"
+description = "AI field-boundary detection and drone coverage mission planning (mapping + spraying)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "shapely>=2.0",
+    "pyproj>=3.5",
+    "rasterio>=1.3",
+    "scipy>=1.10",
+    "scikit-image>=0.21",
+    "matplotlib>=3.7",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "simplekml>=1.3",
+    "requests>=2.31",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+ml = ["torch>=2.1", "segmentation-models-pytorch>=0.3"]
+app = ["streamlit>=1.35", "streamlit-folium>=0.20", "folium>=0.15", "streamlit-image-coordinates>=0.1.6"]
+dev = ["pytest>=8", "ruff>=0.5"]
+all = ["drone-flight-plan[ml,app,dev]"]
+
+[project.scripts]
+drone-flight-plan = "drone_flight_plan.cli:app"
+dfp = "drone_flight_plan.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+drone_flight_plan = ["configs/*.yaml"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501", "B008", "B905"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

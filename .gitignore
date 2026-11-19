@@ -1,0 +1,16 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+data/
+models/
+reports/
+out/
+*.tif
+!examples/*.tif
+.DS_Store
+
+# Streamlit agent skills (local symlinks)
+.agents/
+.claude/

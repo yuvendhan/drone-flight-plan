@@ -1,0 +1,23 @@
+# Mapping small Indian fields (often < 1 ha): fly lower for sharper photos and tighter stripes.
+drone:
+  name: generic-mapping-quad
+  span_m: 0.6
+  battery_min: 25
+  battery_reserve_pct: 25
+camera:
+  hfov_deg: 73.7          # change to your camera
+mission:
+  mode: mapping
+  work_agl_m: 30
+  transit_agl_m: 45       # above trees/palms/power lines
+  speed_mps: 5
+  side_overlap: 0.7       # 70% side overlap → good orthomosaic in WebODM
+  edge_margin_m: 1.0
+  headland: true
+  max_agl_m: 120          # DGCA green zone ceiling (400 ft)
+segmentation:
+  target_res_m: 1.0       # must match the resolution the model was trained at (1.0 for AI4Boundaries);
+                          # set 0.5 only after fine-tuning on 0.5 m Indian imagery
+  min_field_area_m2: 150
+imagery:
+  zoom: 19

@@ -1,0 +1,32 @@
+# Spraying with a ~10 L agri drone. EXAMPLE values — replace with your drone's datasheet.
+drone:
+  name: example-10L-sprayer
+  span_m: 2.0             # arm-to-arm incl. propellers
+  max_speed_mps: 7
+  battery_min: 11         # loaded flight time
+  battery_reserve_pct: 25
+  climb_rate_mps: 2
+  turn_time_s: 3
+spray:
+  swath_m: 4.5
+  tank_l: 10
+  rate_l_per_ha: 25       # check the product label / CIBRC-approved dose
+  servo_channel: 9
+  pwm_on: 1900
+  pwm_off: 1100
+mission:
+  mode: spraying
+  work_agl_m: 2.5         # above crop canopy
+  transit_agl_m: 15
+  speed_mps: 4.5
+  side_overlap: 0.1
+  edge_margin_m: 0.5      # spray close to the bund, drift limits this
+  obstacle_clearance_m: 3
+  headland: true
+  terrain_wp_spacing_m: 8
+segmentation:
+  target_res_m: 1.0       # must match the resolution the model was trained at (1.0 for AI4Boundaries);
+                          # set 0.5 only after fine-tuning on 0.5 m Indian imagery
+  min_field_area_m2: 150
+imagery:
+  zoom: 19

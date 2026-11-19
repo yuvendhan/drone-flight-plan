@@ -1,0 +1,8 @@
+# Defaults (same as config.py). Copy this file to make your own profile.
+mission:
+  mode: mapping
+  work_agl_m: 40
+  transit_agl_m: 50
+  speed_mps: 6
+  side_overlap: 0.3
+  edge_margin_m: 3
