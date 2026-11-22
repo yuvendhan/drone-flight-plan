@@ -1,5 +1,5 @@
 import numpy as np
-import pytest
+from conftest import require_torch_stack
 from rasterio.transform import from_origin
 
 from drone_flight_plan.segmentation.postprocess import instances_to_polygons, probs_to_instances
@@ -21,7 +21,7 @@ def test_touching_fields_are_separated():
 
 
 def test_train_and_predict_tiny(tmp_path):
-    pytest.importorskip("segmentation_models_pytorch")
+    require_torch_stack()
     from drone_flight_plan.config import load_config
     from drone_flight_plan.segmentation.data import make_synthetic_dataset
     from drone_flight_plan.segmentation.infer import Predictor

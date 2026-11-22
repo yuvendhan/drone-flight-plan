@@ -4,8 +4,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.12"]
+    env:
+      REQUIRE_TORCH: "1"   # AI tests must run here (they may skip on machines without a working PyTorch)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -13,9 +16,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install
+        # One resolver run → torch and torchvision always come as a matching CPU pair.
         run: |
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[all]"
+          python -m pip install --upgrade pip
+          pip install -e ".[all]" torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Versions
+        run: |
+          python -c "import torch, torchvision; print('torch', torch.__version__, '| torchvision', torchvision.__version__)"
+          pip check || true
       - name: Lint
         run: ruff check src tests app
       - name: Test

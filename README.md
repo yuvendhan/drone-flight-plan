@@ -25,8 +25,9 @@ streamlit run app/streamlit_app.py
 ```
 Everything, including training and tests:
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build
-pip install -e ".[all]"
+pip install -e ".[all]"                       # Mac: this is enough
+# Linux/Windows without GPU: get a matching CPU-only torch + torchvision in the same command
+pip install -e ".[all]" torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
 pytest
 ```
 Docker: `docker build -t drone-flight-plan . && docker run -p 8501:8501 drone-flight-plan`.

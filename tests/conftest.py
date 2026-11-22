@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 import rasterio
@@ -59,3 +61,14 @@ def sloped_dem(tmp_path, field_m):
     ) as d:
         d.write(z, 1)
     return p
+
+
+def require_torch_stack():
+    """Skip AI-training tests if PyTorch / torchvision are missing or mismatched on this machine.
+    In CI (REQUIRE_TORCH=1) a broken install fails loudly instead of skipping."""
+    try:
+        import segmentation_models_pytorch  # noqa: F401  (imports torch + torchvision + timm)
+    except Exception as e:  # ImportError, or RuntimeError from a torch/torchvision version mismatch
+        if os.environ.get("REQUIRE_TORCH") == "1":
+            raise
+        pytest.skip(f"PyTorch stack not usable here: {type(e).__name__}: {e}")

@@ -2,6 +2,7 @@ import hashlib
 
 import numpy as np
 import pytest
+from conftest import require_torch_stack
 
 from drone_flight_plan.config import SegmentationConfig
 from drone_flight_plan.hub import ModelNotAvailable, model_card, resolve_model
@@ -71,7 +72,7 @@ def test_model_card():
 
 
 def test_onnx_export_matches_torch(tmp_path):
-    pytest.importorskip("segmentation_models_pytorch")
+    require_torch_stack()
     pytest.importorskip("onnxruntime")
     from drone_flight_plan.config import load_config
     from drone_flight_plan.geo.io import read_raster_rgb01
