@@ -95,17 +95,19 @@ def fetch_imagery_cmd(
 @app.command()
 def segment(
     image: Path,
-    checkpoint: Path = typer.Option(...),
+    checkpoint: Optional[Path] = typer.Option(None, help="Model file (.onnx/.pt); default: auto (HF / URL)"),
     profile: str = "default",
     out: Path = typer.Option(Path("fields.geojson"), "--out", "-o"),
 ):
-    """Detect fields in a GeoTIFF → GeoJSON of polygons."""
+    """Detect fields in a GeoTIFF → GeoJSON of polygons. Downloads the model automatically if needed."""
     from .geo.crs import WGS84
     from .geo.io import polygons_to_geojson
+    from .hub import resolve_model
     from .segmentation.infer import Predictor
 
     cfg = load_config(profile)
-    res = Predictor(str(checkpoint), cfg.segmentation).segment_geotiff(image)
+    path = checkpoint or resolve_model(cfg.segmentation)
+    res = Predictor(str(path), cfg.segmentation).segment_geotiff(image)
     gj = polygons_to_geojson(res["polygons_wgs84"], WGS84)
     out.write_text(json.dumps(gj))
     typer.echo(f"{len(res['polygons'])} fields → {out}")
@@ -163,6 +165,46 @@ def evaluate(
             .round(2)
             .to_string()
         )
+
+
+@app.command("export-onnx")
+def export_onnx_cmd(
+    checkpoint: Path,
+    out: Path = typer.Option(Path("models/model.onnx"), "--out", "-o"),
+    int8: bool = typer.Option(False, help="Also make an int8 version (needs data meta.csv for calibration)"),
+    profile: str = "default",
+):
+    """Convert a trained .pt checkpoint to ONNX (runs without PyTorch)."""
+    import pandas as pd
+
+    from .segmentation.onnx_export import compare_models, export_onnx, quantize_int8
+
+    cfg = load_config(profile)
+    p = export_onnx(checkpoint, out, cfg.segmentation.tile)
+    typer.echo(f"ONNX: {p} ({p.stat().st_size / 1e6:.1f} MB)")
+    if int8:
+        meta = pd.read_csv(Path(cfg.train.data_dir) / "meta.csv")
+        q = quantize_int8(
+            p, p.with_name(p.stem + "_int8.onnx"), list(meta[meta.split == "train"].img), cfg.segmentation.tile
+        )
+        typer.echo(json.dumps(compare_models(p, q, meta[meta.split == "test"]), indent=2))
+
+
+@app.command("upload-model")
+def upload_model_cmd(
+    model: Path,
+    repo: str = typer.Option(..., help="username/repo-name on Hugging Face"),
+    metrics: Optional[Path] = typer.Option(None, help="JSON file with test metrics for the model card"),
+):
+    """Upload model.onnx + model card to Hugging Face (token from HF_TOKEN env var)."""
+    import os
+
+    from .hub import upload_model
+    from .segmentation.infer import Predictor
+
+    sc = Predictor(str(model)).sc
+    m = json.loads(metrics.read_text()) if metrics else {}
+    typer.echo(f"Uploaded → {upload_model(model, repo, os.environ.get('HF_TOKEN'), m, sc)}")
 
 
 if __name__ == "__main__":

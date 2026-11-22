@@ -1,44 +1,85 @@
-"""Run a trained model on any georeferenced image → field polygons."""
+"""Run a trained model on any georeferenced image → field polygons.
+
+Works with either a PyTorch checkpoint (.pt, needs torch) or an ONNX model (.onnx, needs only onnxruntime).
+"""
 
 from __future__ import annotations
+
+import json
 
 import numpy as np
 
 from ..config import SegmentationConfig
 from ..geo.crs import WGS84, reproject_geom
 from ..geo.io import read_raster_rgb01
-from .model import MEAN, STD, load_checkpoint
+from .model import MEAN, STD
 from .postprocess import instances_to_polygons, probs_to_instances
+
+
+def _softmax(x, axis=1):
+    e = np.exp(x - x.max(axis=axis, keepdims=True))
+    return e / e.sum(axis=axis, keepdims=True)
+
+
+class _TorchRunner:
+    def __init__(self, path, device=None):
+        import torch
+
+        from .model import load_checkpoint
+
+        self.torch = torch
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.model, self.sc, self.meta = load_checkpoint(path, self.device)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        torch = self.torch
+        amp = self.device == "cuda"
+        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=amp):
+            return self.model(torch.from_numpy(x).to(self.device)).float().cpu().numpy()
+
+
+class _OnnxRunner:
+    def __init__(self, path):
+        import onnxruntime as ort
+
+        self.sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        self.input = self.sess.get_inputs()[0].name
+        self.meta = dict(self.sess.get_modelmeta().custom_metadata_map)
+        self.sc = SegmentationConfig.model_validate(json.loads(self.meta.get("seg_config", "{}")))
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        return self.sess.run(None, {self.input: x.astype(np.float32)})[0]
 
 
 class Predictor:
     def __init__(self, checkpoint: str, sc: SegmentationConfig | None = None, device: str | None = None):
-        import torch
-
-        self.torch = torch
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model, trained_sc, self.ckpt = load_checkpoint(checkpoint, self.device)
-        # architecture comes from the checkpoint; thresholds/resolution can be overridden by config
+        self.path = str(checkpoint)
+        self.runner = _OnnxRunner(checkpoint) if self.path.endswith(".onnx") else _TorchRunner(checkpoint, device)
+        trained = self.runner.sc
+        # architecture/resolution come from training; thresholds etc. may be overridden by config
         self.sc = (
-            trained_sc if sc is None else sc.model_copy(update={"arch": trained_sc.arch, "encoder": trained_sc.encoder})
+            trained
+            if sc is None
+            else sc.model_copy(
+                update={"arch": trained.arch, "encoder": trained.encoder, "target_res_m": trained.target_res_m}
+            )
         )
+        self.backend = "onnx" if isinstance(self.runner, _OnnxRunner) else "torch"
 
     def predict_probs(self, rgb01: np.ndarray, tta: bool = True) -> np.ndarray:
         """(3,H,W) in 0..1 → (3,H,W) class probabilities."""
-        torch = self.torch
-        x = torch.from_numpy((rgb01 - MEAN) / STD).float()[None].to(self.device)
+        x = ((rgb01 - MEAN) / STD).astype(np.float32)[None]
         H, W = x.shape[-2:]
         ph, pw = (32 - H % 32) % 32, (32 - W % 32) % 32
-        x = torch.nn.functional.pad(x, (0, pw, 0, ph), mode="reflect")
-        amp = self.device == "cuda"
-        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=amp):
-            p = self.model(x).float().softmax(1)
-            n = 1
-            if tta:
-                p += self.model(x.flip(-1)).float().softmax(1).flip(-1)
-                p += self.model(x.flip(-2)).float().softmax(1).flip(-2)
-                n = 3
-        return (p / n)[0, :, :H, :W].cpu().numpy()
+        if ph or pw:
+            x = np.pad(x, ((0, 0), (0, 0), (0, ph), (0, pw)), mode="reflect")
+        p = _softmax(self.runner(x))
+        n = 1
+        if tta:
+            p += _softmax(self.runner(np.ascontiguousarray(x[..., ::-1])))[..., ::-1]
+            p += _softmax(self.runner(np.ascontiguousarray(x[..., ::-1, :])))[..., ::-1, :]
+            n = 3
+        return (p / n)[0, :, :H, :W].astype(np.float32)
 
     def predict_large(self, rgb01: np.ndarray) -> np.ndarray:
         """Sliding window with centre-weighted blending (no seams)."""

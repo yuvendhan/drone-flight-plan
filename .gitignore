@@ -14,3 +14,5 @@ out/
 # Streamlit agent skills (local symlinks)
 .agents/
 .claude/
+build/
+dist/

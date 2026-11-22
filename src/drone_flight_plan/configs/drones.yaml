@@ -1,0 +1,43 @@
+# Drone presets for the app's drone picker.
+# ⚠️ These are GENERIC CLASSES with typical example values — not datasheets of specific models.
+# Add your own drone by copying an entry and filling in the numbers from its manual.
+drones:
+  "Small mapping quad (consumer)":
+    jobs: [mapping]
+    note: "Typical small camera drone; ~25 min battery."
+    settings:
+      drone: {name: small-mapping-quad, span_m: 0.4, max_speed_mps: 12, battery_min: 25, battery_reserve_pct: 25, climb_rate_mps: 3, turn_time_s: 3}
+      camera: {hfov_deg: 73.7}
+      mission: {mode: mapping, work_agl_m: 30, transit_agl_m: 45, speed_mps: 5, side_overlap: 0.7}
+
+  "Pro mapping quad (RTK)":
+    jobs: [mapping]
+    note: "Survey-grade quad with RTK GPS; ~35 min battery."
+    settings:
+      drone: {name: pro-mapping-quad, span_m: 0.9, max_speed_mps: 15, battery_min: 35, battery_reserve_pct: 25, climb_rate_mps: 4, turn_time_s: 3}
+      camera: {hfov_deg: 70}
+      mission: {mode: mapping, work_agl_m: 40, transit_agl_m: 50, speed_mps: 7, side_overlap: 0.7}
+
+  "Agri sprayer 10 L class":
+    jobs: [spraying, mapping]
+    note: "Common small-farm sprayer size; ~10–12 min loaded flight."
+    settings:
+      drone: {name: sprayer-10L, span_m: 2.0, max_speed_mps: 7, battery_min: 11, battery_reserve_pct: 25, climb_rate_mps: 2, turn_time_s: 3}
+      spray: {swath_m: 4.5, tank_l: 10, rate_l_per_ha: 25}
+      mission: {mode: spraying, work_agl_m: 2.5, transit_agl_m: 15, speed_mps: 4.5, side_overlap: 0.1, edge_margin_m: 0.5}
+
+  "Agri sprayer 16 L class":
+    jobs: [spraying, mapping]
+    note: "Mid-size sprayer; wider swath, ~9–11 min loaded flight."
+    settings:
+      drone: {name: sprayer-16L, span_m: 2.4, max_speed_mps: 8, battery_min: 10, battery_reserve_pct: 25, climb_rate_mps: 2, turn_time_s: 3}
+      spray: {swath_m: 6.0, tank_l: 16, rate_l_per_ha: 25}
+      mission: {mode: spraying, work_agl_m: 3.0, transit_agl_m: 15, speed_mps: 5, side_overlap: 0.1, edge_margin_m: 0.5}
+
+  "Agri sprayer 30 L class":
+    jobs: [spraying]
+    note: "Large sprayer for bigger plots; ~8–10 min loaded flight."
+    settings:
+      drone: {name: sprayer-30L, span_m: 2.9, max_speed_mps: 10, battery_min: 9, battery_reserve_pct: 25, climb_rate_mps: 2.5, turn_time_s: 4}
+      spray: {swath_m: 7.5, tank_l: 30, rate_l_per_ha: 25}
+      mission: {mode: spraying, work_agl_m: 3.0, transit_agl_m: 20, speed_mps: 6, side_overlap: 0.1, edge_margin_m: 0.5}

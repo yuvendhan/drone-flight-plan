@@ -65,14 +65,14 @@ def _split_route(route: Route, cfg: Config, home):
     def ret(p):
         return math.dist(p, home) / v
 
-    P, W = route.pts, route.work
-    chunks, cur_pts, cur_w = [], [tuple(P[0])], [False]
+    P, W, J = route.pts, route.work, route.jump
+    chunks, cur_pts, cur_w, cur_j = [], [tuple(P[0])], [False], [False]
     t = overhead + ret(P[0])
     vol = 0.0
     prev_heading = None
     i = 1
     while i < len(P):
-        a, b, w = np.asarray(cur_pts[-1]), np.asarray(P[i]), bool(W[i])
+        a, b, w, jmp = np.asarray(cur_pts[-1]), np.asarray(P[i]), bool(W[i]), bool(J[i])
         seg = math.dist(a, b)
         if seg < 1e-6:
             i += 1
@@ -84,6 +84,7 @@ def _split_route(route: Route, cfg: Config, home):
         if t + dt + ret(b) <= T and vol + dvol <= tank + 1e-9:
             cur_pts.append(tuple(b))
             cur_w.append(w)
+            cur_j.append(jmp)
             t += dt
             vol += dvol
             i += 1
@@ -100,17 +101,18 @@ def _split_route(route: Route, cfg: Config, home):
             cut = tuple(a + (b - a) * lo)
             cur_pts.append(cut)
             cur_w.append(w)
+            cur_j.append(jmp)
         elif len(cur_pts) <= 1:
             raise ValueError(
                 "One flight cannot even reach the field and come back. "
                 "Move the home point closer or check battery settings."
             )
-        chunks.append((cur_pts, cur_w))
+        chunks.append((cur_pts, cur_w, cur_j))
         start = cur_pts[-1]
-        cur_pts, cur_w = [start], [False]
+        cur_pts, cur_w, cur_j = [start], [False], [False]
         t, vol, prev_heading = overhead + ret(start), 0.0, None
     if len(cur_pts) > 1:
-        chunks.append((cur_pts, cur_w))
+        chunks.append((cur_pts, cur_w, cur_j))
     return chunks
 
 
@@ -118,7 +120,7 @@ def _split_route(route: Route, cfg: Config, home):
 
 
 def _waypoints_for(chunk, cfg: Config, home, terrain, crs, home_z):
-    pts, work = chunk
+    pts, work, jumps = chunk
     m = cfg.mission
     follow = terrain is not None and not terrain.is_flat and m.terrain_follow
 
@@ -138,6 +140,13 @@ def _waypoints_for(chunk, cfg: Config, home, terrain, crs, home_z):
     wps.append(Waypoint(*start, m.work_agl_m + zs - home_z, m.work_agl_m, "work", False))
     for i in range(1, len(pts)):
         a, b, w = pts[i - 1], pts[i], work[i]
+        if jumps[i]:  # hop to another piece: climb, cross at travel height, descend
+            alt = transit_alt(a, b)
+            za, zb = float(z(a)[0]), float(z(b)[0])
+            wps.append(Waypoint(float(a[0]), float(a[1]), alt, alt + home_z - za, "transit"))
+            wps.append(Waypoint(float(b[0]), float(b[1]), alt, alt + home_z - zb, "transit"))
+            wps.append(Waypoint(float(b[0]), float(b[1]), m.work_agl_m + zb - home_z, m.work_agl_m, "work", False))
+            continue
         seg = densify([a, b], m.terrain_wp_spacing_m)[1:] if follow else np.asarray([b])
         zz = z(seg)
         for p, zp in zip(seg, zz):
@@ -159,22 +168,43 @@ def _waypoints_for(chunk, cfg: Config, home, terrain, crs, home_z):
     return _simplify_work(wps)
 
 
+def _rdp_keep(P: np.ndarray, eps: float) -> np.ndarray:
+    """Douglas–Peucker: indices to keep so that EVERY dropped point is within eps of the kept polyline."""
+    keep = np.zeros(len(P), bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(P) - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a, b = P[i], P[j]
+        ab = b - a
+        L2 = float(ab @ ab)
+        seg = P[i + 1 : j] - a
+        t = np.clip(seg @ ab / L2, 0, 1) if L2 > 0 else np.zeros(len(seg))
+        d = np.linalg.norm(seg - np.outer(t, ab), axis=1)
+        k = int(np.argmax(d))
+        if d[k] > eps:
+            keep[i + 1 + k] = True
+            stack += [(i, i + 1 + k), (i + 1 + k, j)]
+    return keep
+
+
 def _simplify_work(wps, tol=0.25, alt_tol=0.3):
-    """Drop work waypoints that are on a straight line at the same height and same pump state."""
-    out = [wps[0]]
-    for i in range(1, len(wps) - 1):
-        a, b, c = out[-1], wps[i], wps[i + 1]
-        if b.kind == "work" and a.kind == "work" and c.kind == "work" and a.spray == b.spray == c.spray:
-            ab, ac = np.array([b.x - a.x, b.y - a.y]), np.array([c.x - a.x, c.y - a.y])
-            L = np.linalg.norm(ac)
-            if L > 0:
-                off = abs(ab[0] * ac[1] - ab[1] * ac[0]) / L
-                t = np.dot(ab, ac) / L**2
-                alt_lin = a.alt_rel_m + t * (c.alt_rel_m - a.alt_rel_m)
-                if off < tol and 0 <= t <= 1 and abs(b.alt_rel_m - alt_lin) < alt_tol:
-                    continue
-        out.append(b)
-    out.append(wps[-1])
+    """Drop redundant work waypoints (straight, same height, same pump state) without cutting corners:
+    every removed point stays within `tol` m sideways and `alt_tol` m in height of the simplified path."""
+    out, i = [], 0
+    while i < len(wps):
+        j = i
+        if wps[i].kind == "work":
+            while j + 1 < len(wps) and wps[j + 1].kind == "work" and wps[j + 1].spray == wps[i].spray:
+                j += 1
+        run = wps[i : j + 1]
+        if len(run) > 2:
+            P = np.array([(w.x, w.y, w.alt_rel_m * tol / alt_tol) for w in run])
+            run = [w for w, k in zip(run, _rdp_keep(P, tol)) if k]
+        out += run
+        i = j + 1
     return out
 
 
@@ -194,6 +224,32 @@ def _flight_time(wps, cfg: Config):
 # ---------------------------------------------------------------- public API
 
 
+def check_home(field_m, home_xy, cfg: Config) -> dict:
+    """Is the take-off spot sensible? Outside the field, not too close, not too far."""
+    p = Point(home_xy)
+    inside = field_m.buffer(-0.5).contains(p)
+    dist = (
+        0.0
+        if inside
+        else round(float(field_m.exterior.distance(p) if field_m.geom_type == "Polygon" else field_m.distance(p)), 1)
+    )
+    m = cfg.mission
+    w = []
+    if inside:
+        w.append("Home point is INSIDE the field. Take-off/landing should be outside (road, bund, open ground).")
+    elif dist < m.home_min_m:
+        w.append(
+            f"Home is only {dist:.0f} m from the field edge — keep at least {m.home_min_m:.0f} m so the "
+            "drone does not take off over the crop."
+        )
+    elif dist > m.home_max_m:
+        w.append(
+            f"Home is {dist:.0f} m from the field — farther than {m.home_max_m:.0f} m. Keep the drone in "
+            "sight and radio range; move closer if possible."
+        )
+    return {"inside": inside, "distance_m": dist, "ok": not w, "warnings": w}
+
+
 def build_mission(route: Route, cfg: Config, home_xy=None, terrain=None) -> Mission:
     """home_xy: take-off/landing point in the route's metric CRS. Default = nearest point just outside the field."""
     crs = route.crs
@@ -207,8 +263,8 @@ def build_mission(route: Route, cfg: Config, home_xy=None, terrain=None) -> Miss
         home_xy = (near.x + vec[0] * 5, near.y + vec[1] * 5)
         warnings.append("Home point not set: using a spot 5 m outside the field edge. Set a real, safe take-off spot.")
     home_xy = (float(home_xy[0]), float(home_xy[1]))
-    if route.field.buffer(-0.5).contains(Point(home_xy)):
-        warnings.append("Home point is INSIDE the field. Take-off/landing should be outside (road, bund, open ground).")
+    home_check = check_home(route.field, home_xy, cfg)
+    warnings += home_check["warnings"]
     home_z = float(terrain.elevation([home_xy], crs)[0]) if terrain is not None and not terrain.is_flat else 0.0
 
     chunks = _split_route(route, cfg, home_xy)
@@ -216,7 +272,7 @@ def build_mission(route: Route, cfg: Config, home_xy=None, terrain=None) -> Miss
     l_per_m = cfg.flow_l_per_s / cfg.mission.speed_mps if cfg.mission.mode == "spraying" else 0.0
     for ch in chunks:
         wps = _waypoints_for(ch, cfg, home_xy, terrain, crs, home_z)
-        pts, work = ch
+        pts, work, _ = ch
         work_m = sum(math.dist(pts[i - 1], pts[i]) for i in range(1, len(pts)) if work[i])
         dist = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(wps[:-1], wps[1:]))
         sorties.append(Sortie(wps, _flight_time(wps, cfg), work_m, work_m * l_per_m, dist))
@@ -255,6 +311,7 @@ def build_mission(route: Route, cfg: Config, home_xy=None, terrain=None) -> Miss
             "mission_distance_m": round(sum(s.distance_m for s in sorties), 1),
             "waypoints_each": [len(s.waypoints) for s in sorties],
             "max_agl_m": round(max_agl, 1),
+            "home_distance_m": home_check["distance_m"],
             "terrain": "flat" if terrain is None or terrain.is_flat else terrain.name,
         }
     )

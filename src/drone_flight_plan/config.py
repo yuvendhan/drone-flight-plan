@@ -55,6 +55,12 @@ class MissionConfig(BaseModel):
         15.0, gt=1, description="Waypoint every N m along stripes when following terrain"
     )
     max_agl_m: float = Field(120.0, description="Legal ceiling (India green zone / EU open category ≈ 120 m)")
+    powerline_clearance_m: float = Field(
+        10.0, ge=0, description="Keep this far from power lines (plus obstacle clearance)"
+    )
+    tree_radius_m: float = Field(4.0, gt=0, description="Default canopy radius for a clicked tree")
+    home_min_m: float = Field(5.0, ge=0, description="Warn if home is closer than this to the field edge")
+    home_max_m: float = Field(150.0, gt=0, description="Warn if home is farther than this (radio link / line of sight)")
 
     @model_validator(mode="after")
     def _transit_above_work(self):
@@ -75,7 +81,14 @@ class SegmentationConfig(BaseModel):
     min_field_px: int = 150
     simplify_m: float = 2.0
     min_field_area_m2: float = 300.0
-    checkpoint: str = "models/unet_resnet34_3class.pt"
+    checkpoint: str = "models/model.onnx"
+    hf_repo: Optional[str] = Field(
+        "yuvendhan/drone-flight-plan-fields", description="Hugging Face model repo (change to your own username/repo)"
+    )
+    hf_filename: str = "model.onnx"
+    hf_revision: str = "main"
+    model_url: Optional[str] = Field(None, description="Fallback direct download URL (e.g. GitHub Release asset)")
+    model_sha256: Optional[str] = Field(None, description="Expected SHA-256 of the downloaded model file")
 
 
 class TrainConfig(BaseModel):
@@ -100,7 +113,12 @@ class ImageryConfig(BaseModel):
     max_tiles: int = 400
 
 
+class DisplayConfig(BaseModel):
+    area_unit: Literal["acre", "ha", "cent", "guntha"] = "acre"
+
+
 class Config(BaseModel):
+    display: DisplayConfig = DisplayConfig()
     drone: DroneProfile = DroneProfile()
     camera: CameraProfile = CameraProfile()
     spray: SprayProfile = SprayProfile()
@@ -144,11 +162,16 @@ def _deep_merge(base: dict, over: dict) -> dict:
 
 
 def available_profiles() -> list[str]:
-    return sorted(p.stem for p in PACKAGED.glob("*.yaml"))
+    return sorted(p.stem for p in PACKAGED.glob("*.yaml") if p.stem != "drones")
 
 
-def load_config(profile: str | Path | None = None, overrides: dict | None = None) -> Config:
-    """Load defaults ← packaged/explicit YAML ← overrides dict."""
+def drone_catalog() -> dict[str, dict]:
+    """Drone presets from configs/drones.yaml: {name: {"jobs": [...], "note": str, "settings": {...}}}."""
+    return yaml.safe_load((PACKAGED / "drones.yaml").read_text())["drones"]
+
+
+def load_config(profile: str | Path | None = None, overrides: dict | None = None, drone: str | None = None) -> Config:
+    """Load defaults ← packaged/explicit YAML ← drone preset ← overrides dict."""
     data: dict = {}
     if profile:
         p = Path(profile)
@@ -157,6 +180,11 @@ def load_config(profile: str | Path | None = None, overrides: dict | None = None
         if not p.exists():
             raise FileNotFoundError(f"Config '{profile}' not found. Available: {available_profiles()}")
         data = yaml.safe_load(p.read_text()) or {}
+    if drone:
+        cat = drone_catalog()
+        if drone not in cat:
+            raise KeyError(f"Unknown drone '{drone}'. Available: {list(cat)}")
+        data = _deep_merge(data, cat[drone].get("settings", {}))
     data = _deep_merge(data, overrides or {})
     return Config.model_validate(data)
 

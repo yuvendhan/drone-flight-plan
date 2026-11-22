@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drone-flight-plan"
-version = "0.2.0"
+version = "0.3.0"
 description = "AI field-boundary detection and drone coverage mission planning (mapping + spraying)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,10 +27,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ml = ["torch>=2.1", "segmentation-models-pytorch>=0.3"]
-app = ["streamlit>=1.35", "streamlit-folium>=0.20", "folium>=0.15", "streamlit-image-coordinates>=0.1.6"]
+ml = ["torch>=2.1", "segmentation-models-pytorch>=0.3", "onnx>=1.15", "onnxruntime>=1.17", "huggingface_hub>=0.24"]
+onnx = ["onnxruntime>=1.17", "huggingface_hub>=0.24"]
+app = ["streamlit>=1.35", "streamlit-folium>=0.20", "folium>=0.15", "streamlit-js-eval>=0.1.7"]
 dev = ["pytest>=8", "ruff>=0.5"]
-all = ["drone-flight-plan[ml,app,dev]"]
+all = ["drone-flight-plan[ml,onnx,app,dev]"]
 
 [project.scripts]
 drone-flight-plan = "drone_flight_plan.cli:app"

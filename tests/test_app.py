@@ -6,8 +6,9 @@ from shapely.geometry import Polygon
 APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
 
 
-def test_app_plans_a_field():
+def test_app_plans_a_field(monkeypatch):
     pytest.importorskip("streamlit_folium")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")  # no model download in tests
     from streamlit.testing.v1 import AppTest
 
     at = AppTest.from_file(APP, default_timeout=120)
@@ -20,5 +21,6 @@ def test_app_plans_a_field():
     at.run()
     next(b for b in at.button if "Plan mission" in b.label).click().run()
     assert not at.exception and not at.error
-    labels = {m.label for m in at.metric}
-    assert {"Field", "Coverage", "Flights"} <= labels
+    metrics = {m.label: m.value for m in at.metric}
+    assert {"Field", "Coverage", "Flights"} <= set(metrics)
+    assert "acre" in metrics["Field"]  # acres by default

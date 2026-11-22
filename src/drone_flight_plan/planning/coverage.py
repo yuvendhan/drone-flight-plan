@@ -40,6 +40,11 @@ class Route:
     workable: object  # field minus no-fly zones (what must be covered)
     crs: object = None
     metrics: dict = field(default_factory=dict)
+    jump: np.ndarray | None = None  # jump[i]: segment (i-1 → i) hops between separate pieces (flown at travel height)
+
+    def __post_init__(self):
+        if self.jump is None:
+            self.jump = np.zeros(len(self.pts), bool)
 
     def work_lines(self) -> list[LineString]:
         lines, cur = [], []
@@ -304,7 +309,7 @@ def plan_coverage(field_m, cfg: Config, crs=None, no_fly_m=None, terrain=None, a
         _, a, P, W = pick_best(cands, part.area, preferred)
         return a, P, W
 
-    allP, allW, angles, cur = [], [], [], start
+    allP, allW, allJ, angles, cur = [], [], [], [], start
     remaining = parts[:]
     while remaining:
         if cur is not None:
@@ -313,17 +318,27 @@ def plan_coverage(field_m, cfg: Config, crs=None, no_fly_m=None, terrain=None, a
         a, P, W = best_for(part, cur)
         if P is None:
             continue
+        J = np.zeros(len(P), bool)
         if allP:
             W = W.copy()
-            W[0] = False  # transit from previous piece
+            W[0] = False  # transit from previous piece...
+            J[0] = True  # ...flown at travel height (pieces may be separated by wires, trees, ponds)
         allP.append(P)
         allW.append(W)
+        allJ.append(J)
         angles.append(a)
         cur = tuple(P[-1])
     if not allP:
         raise ValueError("Could not plan any stripes for this field")
     route = Route(
-        np.vstack(allP), np.concatenate(allW), angles[0] if len(angles) == 1 else angles, field_m, fly, workable, crs
+        np.vstack(allP),
+        np.concatenate(allW),
+        angles[0] if len(angles) == 1 else angles,
+        field_m,
+        fly,
+        workable,
+        crs,
+        jump=np.concatenate(allJ),
     )
     route.metrics = evaluate_route(route, cfg, terrain)
     if contour is not None:
@@ -354,10 +369,22 @@ def evaluate_route(route: Route, cfg: Config, terrain=None, against=None) -> dic
         "footprint_cover_pct": round(100 * foot.intersection(target).area / target.area, 2),
         "missed_m2": round(target.area - covered, 1),
         "spill_m2": round(foot.difference(target).area, 1),
-        "path_outside_m": round(outside_length(P, flyable), 1),
+        "path_outside_m": round(_outside_low(route, flyable), 1),
+        "travel_hops": int(route.jump.sum()),
         "angle_deg": route.angle,
         "spacing_m": round(cfg.spacing_m, 2),
     }
+
+
+def _outside_low(route: Route, flyable) -> float:
+    """Metres flown outside the safe area at WORK height (hops between pieces are at travel height)."""
+    total, P = 0.0, route.pts
+    start = 0
+    for i in range(1, len(P) + 1):
+        if i == len(P) or route.jump[i]:
+            total += outside_length(P[start:i], flyable)
+            start = i
+    return total
 
 
 def longest_edge_angle(poly) -> float:
